@@ -41,7 +41,11 @@ export function Screen7DisruptionMonitor({ option, disruption, TriggerDelay, onS
         <InteractiveMapView
           legs={option.legs}
           isDisrupted={disruption && disruption.isAtRisk}
-          simulatedBusLocation={disruption && disruption.isAtRisk ? { x: 155, y: 142 } : { x: 100, y: 95 }}
+          simulatedBusLocation={
+            disruption && disruption.isAtRisk
+              ? { latitude: 16.5100, longitude: 80.6400, label: isTe ? 'బస్సు A (విజయవాడ వద్ద ఆలస్యం)' : 'Bus A (Delayed +50m at Vijayawada)' }
+              : { latitude: 17.2000, longitude: 82.2000, label: isTe ? 'బస్సు A (సాఫీగా సాగుతోంది)' : 'Bus A (En Route On-Time)' }
+          }
         />
       </View>
 
