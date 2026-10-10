@@ -1,6 +1,6 @@
 import React, { useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from 'react-native-maps';
+import { WebView } from 'react-native-webview';
 import { MOCK_STOPS, MOCK_CITIES } from './mockData';
 import { theme } from './theme';
 
@@ -78,10 +78,172 @@ function resolveSimulatedBusLocation(simulatedBusLocation, originCoord, destCoor
   return null;
 }
 
-export function InteractiveMapView({ legs = [], highlightedLegIndex = null, isDisrupted = false, simulatedBusLocation = null }) {
-  const mapRef = useRef(null);
-  const apiKey = process.env.EXPO_PUBLIC_GOOGLE_MAPS_API_KEY || process.env.GOOGLE_MAPS_API_KEY;
+// Generate Leaflet HTML for WebView rendering with OpenStreetMap tiles
+function generateLeafletHTML(mapData) {
+  const { legs, originMarker, destinationMarker, transferMarkers, busCoord, isDisrupted } = mapData;
 
+  const serializedData = JSON.stringify({
+    legs,
+    originMarker,
+    destinationMarker,
+    transferMarkers,
+    busCoord,
+    isDisrupted,
+    actionColor: theme.colors.action
+  });
+
+  return `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    html, body, #map {
+      height: 100%;
+      width: 100%;
+      margin: 0;
+      padding: 0;
+      background-color: #0F172A;
+    }
+    .leaflet-control-attribution {
+      font-size: 9px !important;
+      background: rgba(255, 255, 255, 0.8) !important;
+      padding: 2px 5px !important;
+    }
+    .custom-div-icon {
+      background: transparent;
+      border: none;
+    }
+    .marker-pin {
+      width: 24px;
+      height: 24px;
+      border-radius: 50% 50% 50% 0;
+      position: absolute;
+      transform: rotate(-45deg);
+      left: 50%;
+      top: 50%;
+      margin: -15px 0 0 -12px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.4);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .marker-pin::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      margin: 7px 0 0 7px;
+      background: #fff;
+      position: absolute;
+      border-radius: 50%;
+    }
+    .pin-green { background: #10B981; }
+    .pin-red { background: #EF4444; }
+    .pin-orange { background: #F59E0B; }
+    .pin-violet { background: #8B5CF6; }
+    .pin-disrupted { background: ${theme.colors.action}; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <script>
+    (function() {
+      const data = ${serializedData};
+      
+      const map = L.map('map', {
+        zoomControl: true,
+        attributionControl: true
+      }).setView([16.8000, 80.8000], 7);
+
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19,
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank">OpenStreetMap</a> contributors'
+      }).addTo(map);
+
+      const allBounds = [];
+
+      // Custom marker icon helper
+      function createPinIcon(colorClass, emoji) {
+        return L.divIcon({
+          className: 'custom-div-icon',
+          html: '<div class="marker-pin ' + colorClass + '"></div>',
+          iconSize: [30, 42],
+          iconAnchor: [15, 42],
+          popupAnchor: [0, -35]
+        });
+      }
+
+      // Draw Leg Polylines
+      data.legs.forEach(function(l, idx) {
+        const coords = [
+          [l.originCoord.latitude, l.originCoord.longitude],
+          [l.destCoord.latitude, l.destCoord.longitude]
+        ];
+        allBounds.push(coords[0], coords[1]);
+
+        const legColor = data.isDisrupted && idx === 0 ? data.actionColor : (idx === 0 ? '#0284C7' : '#10B981');
+        const dashArray = data.isDisrupted && idx === 0 ? '8, 8' : null;
+
+        L.polyline(coords, {
+          color: legColor,
+          weight: 5,
+          opacity: 0.85,
+          dashArray: dashArray
+        }).addTo(map);
+      });
+
+      // Origin Marker
+      if (data.originMarker) {
+        const originLat = data.originMarker.coord.latitude;
+        const originLng = data.originMarker.coord.longitude;
+        L.marker([originLat, originLng], {
+          icon: createPinIcon('pin-green')
+        }).addTo(map).bindPopup('<b>Origin: ' + data.originMarker.name + '</b><br>Boarding Point');
+      }
+
+      // Destination Marker
+      if (data.destinationMarker) {
+        const destLat = data.destinationMarker.coord.latitude;
+        const destLng = data.destinationMarker.coord.longitude;
+        L.marker([destLat, destLng], {
+          icon: createPinIcon('pin-red')
+        }).addTo(map).bindPopup('<b>Destination: ' + data.destinationMarker.name + '</b><br>Final Drop Point');
+      }
+
+      // Transfer Markers
+      data.transferMarkers.forEach(function(tm) {
+        L.marker([tm.coord.latitude, tm.coord.longitude], {
+          icon: createPinIcon('pin-orange')
+        }).addTo(map).bindPopup('<b>Transfer Terminal: ' + tm.name + '</b><br>Interchange Transfer Point between Leg ' + tm.legIndex + ' & ' + (tm.legIndex + 1));
+      });
+
+      // Simulated Bus Marker
+      if (data.busCoord) {
+        const busLat = data.busCoord.latitude;
+        const busLng = data.busCoord.longitude;
+        allBounds.push([busLat, busLng]);
+        const busPinClass = data.isDisrupted ? 'pin-disrupted' : 'pin-violet';
+
+        L.marker([busLat, busLng], {
+          icon: createPinIcon(busPinClass)
+        }).addTo(map).bindPopup('<b>🚌 ' + data.busCoord.label + '</b><br>Simulated vehicle position - not live GPS');
+      }
+
+      // Fit map camera bounds
+      if (allBounds.length > 0) {
+        map.fitBounds(allBounds, { padding: [30, 30] });
+      }
+    })();
+  </script>
+</body>
+</html>
+  `;
+}
+
+export function InteractiveMapView({ legs = [], highlightedLegIndex = null, isDisrupted = false, simulatedBusLocation = null }) {
   // Process coordinates for each leg
   const processedLegs = legs.map((leg, index) => {
     const originCoord = resolveCoordinates(leg.originStop) || resolveCoordinates(leg.fromCity) || resolveCoordinates(leg.origin);
@@ -97,85 +259,7 @@ export function InteractiveMapView({ legs = [], highlightedLegIndex = null, isDi
     };
   }).filter(l => l.originCoord && l.destCoord);
 
-  // Extract all route coordinates for map camera bounding region
-  const allRouteCoords = [];
-  processedLegs.forEach(l => {
-    allRouteCoords.push(l.originCoord);
-    allRouteCoords.push(l.destCoord);
-  });
-
   const busCoord = resolveSimulatedBusLocation(simulatedBusLocation, processedLegs[0]?.originCoord, processedLegs[0]?.destCoord);
-  if (busCoord) {
-    allRouteCoords.push({ latitude: busCoord.latitude, longitude: busCoord.longitude });
-  }
-
-  // Calculate bounding region
-  let initialRegion = {
-    latitude: 16.8000,
-    longitude: 80.8000,
-    latitudeDelta: 3.5,
-    longitudeDelta: 3.5,
-  };
-
-  if (allRouteCoords.length > 0) {
-    const lats = allRouteCoords.map(c => c.latitude);
-    const lngs = allRouteCoords.map(c => c.longitude);
-    const minLat = Math.min(...lats);
-    const maxLat = Math.max(...lats);
-    const minLng = Math.min(...lngs);
-    const maxLng = Math.max(...lngs);
-
-    initialRegion = {
-      latitude: (minLat + maxLat) / 2,
-      longitude: (minLng + maxLng) / 2,
-      latitudeDelta: Math.max((maxLat - minLat) * 1.5, 0.4),
-      longitudeDelta: Math.max((maxLng - minLng) * 1.5, 0.4),
-    };
-  }
-
-  // Frame route when map mounts or coordinates change
-  useEffect(() => {
-    if (mapRef.current && allRouteCoords.length > 0 && Platform.OS !== 'web') {
-      try {
-        mapRef.current.fitToCoordinates(allRouteCoords, {
-          edgePadding: { top: 60, right: 60, bottom: 60, left: 60 },
-          animated: true,
-        });
-      } catch (err) {
-        // Fallback handled by initialRegion
-      }
-    }
-  }, [allRouteCoords.length, isDisrupted]);
-
-  // Web platform fallback notice
-  if (Platform.OS === 'web') {
-    return (
-      <View style={styles.card}>
-        <View style={styles.headerRow}>
-          <Text style={styles.mapTitle}>Route Geometry & Transit Map</Text>
-          <View style={styles.demoBadge}>
-            <Text style={styles.demoBadgeText}>Simulated Bus Coordinates</Text>
-          </View>
-        </View>
-        <View style={styles.webFallbackContainer}>
-          <Text style={styles.webFallbackTitle}>🗺️ Google Maps Native View</Text>
-          <Text style={styles.webFallbackText}>
-            Native Google Maps (PROVIDER_GOOGLE) is configured for Android and iOS builds.
-          </Text>
-          {processedLegs.map((l, i) => (
-            <Text key={i} style={styles.webFallbackLeg}>
-              Leg {i + 1}: {l.originName} ➔ {l.destName}
-            </Text>
-          ))}
-          {busCoord && (
-            <Text style={styles.simulatedNote}>
-              🚌 Vehicle Position: {busCoord.label} (Simulated coordinates: {busCoord.latitude.toFixed(4)}, {busCoord.longitude.toFixed(4)})
-            </Text>
-          )}
-        </View>
-      </View>
-    );
-  }
 
   // Error state: Missing route coordinates contract
   if (processedLegs.length === 0) {
@@ -195,11 +279,8 @@ export function InteractiveMapView({ legs = [], highlightedLegIndex = null, isDi
   }
 
   // Determine origin, destination, and transfer stops
-  const originMarker = processedLegs[0]?.originCoord;
-  const originName = processedLegs[0]?.originName;
-
-  const destinationMarker = processedLegs[processedLegs.length - 1]?.destCoord;
-  const destinationName = processedLegs[processedLegs.length - 1]?.destName;
+  const originMarker = processedLegs[0] ? { coord: processedLegs[0].originCoord, name: processedLegs[0].originName } : null;
+  const destinationMarker = processedLegs[processedLegs.length - 1] ? { coord: processedLegs[processedLegs.length - 1].destCoord, name: processedLegs[processedLegs.length - 1].destName } : null;
 
   const transferMarkers = [];
   if (processedLegs.length > 1) {
@@ -212,90 +293,38 @@ export function InteractiveMapView({ legs = [], highlightedLegIndex = null, isDi
     }
   }
 
+  const leafletHTML = generateLeafletHTML({
+    legs: processedLegs,
+    originMarker,
+    destinationMarker,
+    transferMarkers,
+    busCoord,
+    isDisrupted
+  });
+
   return (
     <View style={styles.card}>
       <View style={styles.headerRow}>
-        <Text style={styles.mapTitle}>Route Geometry & Transit Map</Text>
+        <Text style={styles.mapTitle}>Route Geometry & Transit Map (OpenStreetMap)</Text>
         <View style={styles.demoBadge}>
           <Text style={styles.demoBadgeText}>Simulated Vehicle Coordinates</Text>
         </View>
       </View>
 
-      {!apiKey && (
-        <View style={styles.warningBanner}>
-          <Text style={styles.warningText}>
-            ⚠️ GOOGLE_MAPS_API_KEY is not set in .env. Configure your key for native map tile rendering.
-          </Text>
-        </View>
-      )}
-
       <View style={styles.mapContainer}>
-        <MapView
-          ref={mapRef}
-          provider={PROVIDER_GOOGLE}
+        <WebView
+          originWhitelist={['*']}
+          source={{ html: leafletHTML }}
           style={styles.map}
-          initialRegion={initialRegion}
-          showsUserLocation={false}
-          showsCompass={true}
-          showsScale={true}
-        >
-          {/* Render Leg Polylines */}
-          {processedLegs.map((l, idx) => {
-            const isHighlighted = highlightedLegIndex === idx;
-            const legColor = isDisrupted && idx === 0 ? theme.colors.action : idx === 0 ? '#0284C7' : '#10B981';
-
-            return (
-              <Polyline
-                key={`polyline-leg-${idx}`}
-                coordinates={[l.originCoord, l.destCoord]}
-                strokeColor={legColor}
-                strokeWidth={isHighlighted || isDisrupted ? 5 : 4}
-                lineDashPattern={isDisrupted && idx === 0 ? [8, 4] : null}
-              />
-            );
-          })}
-
-          {/* Origin Marker */}
-          {originMarker && (
-            <Marker
-              coordinate={originMarker}
-              title={`Origin: ${originName}`}
-              description="Boarding Stop"
-              pinColor="green"
-            />
+          javaScriptEnabled={true}
+          domStorageEnabled={true}
+          startInLoadingState={true}
+          renderLoading={() => (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>🗺️ Loading OpenStreetMap...</Text>
+            </View>
           )}
-
-          {/* Destination Marker */}
-          {destinationMarker && (
-            <Marker
-              coordinate={destinationMarker}
-              title={`Destination: ${destinationName}`}
-              description="Final Drop Point"
-              pinColor="red"
-            />
-          )}
-
-          {/* Transfer Stop Markers */}
-          {transferMarkers.map((tm, idx) => (
-            <Marker
-              key={`transfer-${idx}`}
-              coordinate={tm.coord}
-              title={`Transfer Stop: ${tm.name}`}
-              description={`Interchange Transfer Point between Leg ${tm.legIndex} & ${tm.legIndex + 1}`}
-              pinColor="orange"
-            />
-          ))}
-
-          {/* Simulated Vehicle Marker */}
-          {busCoord && (
-            <Marker
-              coordinate={{ latitude: busCoord.latitude, longitude: busCoord.longitude }}
-              title="🚌 Simulated Bus Location"
-              description={`${busCoord.label} (Simulated vehicle position - not live GPS)`}
-              pinColor="violet"
-            />
-          )}
-        </MapView>
+        />
       </View>
 
       {/* Map Legend */}
@@ -352,21 +381,8 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#475569',
   },
-  warningBanner: {
-    backgroundColor: '#FEF3C7',
-    padding: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FCD34D',
-    marginBottom: 8,
-  },
-  warningText: {
-    fontSize: 11,
-    color: '#92400E',
-    fontWeight: '500',
-  },
   mapContainer: {
-    height: 210,
+    height: 220,
     borderRadius: 12,
     overflow: 'hidden',
     backgroundColor: '#0F172A',
@@ -374,6 +390,18 @@ const styles = StyleSheet.create({
   map: {
     width: '100%',
     height: '100%',
+    backgroundColor: 'transparent',
+  },
+  loadingContainer: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: '#0F172A',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: '#38BDF8',
+    fontSize: 12,
+    fontWeight: '600',
   },
   legendRow: {
     flexDirection: 'row',
@@ -397,35 +425,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: theme.colors.textSecondary,
     fontWeight: '500',
-  },
-  webFallbackContainer: {
-    backgroundColor: '#0F172A',
-    padding: 16,
-    borderRadius: 12,
-    minHeight: 160,
-  },
-  webFallbackTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#38BDF8',
-    marginBottom: 6,
-  },
-  webFallbackText: {
-    fontSize: 12,
-    color: '#94A3B8',
-    marginBottom: 10,
-  },
-  webFallbackLeg: {
-    fontSize: 12,
-    fontWeight: '600',
-    color: '#E2E8F0',
-    marginBottom: 4,
-  },
-  simulatedNote: {
-    fontSize: 11,
-    color: '#F59E0B',
-    marginTop: 6,
-    fontStyle: 'italic',
   },
   errorContainer: {
     backgroundColor: '#FEF2F2',
