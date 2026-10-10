@@ -80,21 +80,15 @@ export function Screen7DisruptionMonitor({ option, disruption, TriggerDelay, onS
       )}
 
       {/* Actions */}
-      <View style={styles.btnStack}>
-        {!disruption || !disruption.isAtRisk ? (
-          <TouchableOpacity style={styles.triggerBtn} onPress={TriggerDelay}>
-            <Text style={styles.triggerBtnText}>
-              ⚡ {isTe ? 'సిమ్యులేటెడ్ 50 నిమిషాల ఆలస్యం ప్రారంభించు' : 'Trigger Predefined 50-Min Delay Scenario'}
-            </Text>
-          </TouchableOpacity>
-        ) : (
+      {disruption && disruption.isAtRisk && (
+        <View style={styles.btnStack}>
           <TouchableOpacity style={styles.recoveryBtn} onPress={onStartRecovery}>
             <Text style={styles.recoveryBtnText}>
               🛠️ {isTe ? 'మరొక ప్రయాణ మార్గాన్ని వెతుకు ➔' : 'Find Recovery Proposals ➔'}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </View>
+      )}
     </ScrollView>
   );
 }
@@ -143,18 +137,5 @@ const styles = StyleSheet.create({
   safeVal: { fontSize: 16, fontWeight: '700', color: theme.colors.success },
   arrow: { fontSize: 16, color: theme.colors.textMuted },
   btnStack: { marginHorizontal: theme.spacing.md, marginTop: theme.spacing.md },
-  triggerBtn: {
-    backgroundColor: theme.colors.action,
-    borderRadius: theme.radius.lg,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
-  triggerBtnText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-  recoveryBtn: {
-    backgroundColor: theme.colors.primary,
-    borderRadius: theme.radius.lg,
-    paddingVertical: 14,
-    alignItems: 'center',
-  },
   recoveryBtnText: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' }
 });

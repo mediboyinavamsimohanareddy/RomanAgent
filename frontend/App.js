@@ -277,7 +277,12 @@ export default function App() {
         {currentStage === 6 && selectedOption && (
           <Screen6Checkout
             option={selectedOption}
-            onConfirmJourney={handleConfirmJourney}
+            onConfirmJourney={(opt, navigateToJourney = false) => {
+              setActiveItinerary(opt || selectedOption);
+              if (navigateToJourney) {
+                setCurrentStage(7);
+              }
+            }}
             language={language}
             onToggleLanguage={toggleLanguage}
           />
