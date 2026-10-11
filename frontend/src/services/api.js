@@ -20,6 +20,10 @@ export const ENDPOINTS = {
   APPROVE_REVISION: (id) => `${API_BASE_URL}/itineraries/${id}/revisions/approve`,
   REJECT_REVISION: (id) => `${API_BASE_URL}/itineraries/${id}/revisions/reject`,
   TRIGGER_SCENARIO: `${API_BASE_URL}/disruptions/trigger-scenario`,
+  GET_SEAT_LAYOUT: `${API_BASE_URL}/seats/layout`,
+  HOLD_SEATS: `${API_BASE_URL}/seats/hold`,
+  CONFIRM_SEAT_BOOKING: `${API_BASE_URL}/seats/confirm`,
+  GET_BOOKING: (ref) => `${API_BASE_URL}/seats/booking/${ref}`,
 };
 
 // Generic fetch wrapper with timeout and fallback support
@@ -307,6 +311,171 @@ export async function approveItineraryChange(proposalId, originalItineraryId) {
       timestamp: new Date().toISOString(),
     };
   }
+}
+
+/**
+ * 9. Fetch Seat Layout & Availability
+ */
+export async function fetchSeatLayout(busServiceId, departureDate) {
+  try {
+    const url = `${ENDPOINTS.GET_SEAT_LAYOUT}?busServiceId=${encodeURIComponent(busServiceId || 'c1111111-1111-1111-1111-111111111111')}${departureDate ? `&departureDate=${departureDate}` : ''}`;
+    const response = await apiRequest(url, { method: 'GET' });
+    if (response && response.seats) {
+      return { status: 'SUCCESS', source: 'SPRING_BOOT_API', data: response };
+    }
+  } catch (error) {
+    console.warn('[API Service] Spring Boot seat layout endpoint offline. Using client fallback layout.');
+  }
+
+  // Fallback layout generator
+  const isSleeper = (busServiceId || '').includes('3333') || (busServiceId || '').includes('4444');
+  const mockSeats = [];
+
+  if (isSleeper) {
+    // Sleeper Layout (Lower & Upper Deck)
+    ['LOWER', 'UPPER'].forEach(deck => {
+      const prefix = deck === 'LOWER' ? 'L' : 'U';
+      for (let r = 1; r <= 2; r++) {
+        for (let c = 1; c <= 3; c++) {
+          const idx = (r - 1) * 3 + c;
+          const seatNo = `${prefix}${idx}`;
+          const isBooked = seatNo === 'L2' || seatNo === 'U5';
+          mockSeats.push({
+            seatId: `mock-${deck}-${seatNo}`,
+            seatNumber: seatNo,
+            rowNum: r,
+            colNum: c,
+            deck,
+            seatType: c === 1 ? 'SLEEPER_SINGLE' : 'SLEEPER_DOUBLE',
+            isWindow: c === 1 || c === 3,
+            extraFare: c === 1 ? 50 : 0,
+            status: isBooked ? 'BOOKED' : 'AVAILABLE'
+          });
+        }
+      }
+    });
+  } else {
+    // 2x2 Seater Layout
+    const colLetters = ['A', 'B', 'C', 'D'];
+    for (let r = 1; r <= 5; r++) {
+      for (let c = 1; c <= 4; c++) {
+        const seatNo = `${r}${colLetters[c - 1]}`;
+        const isBooked = seatNo === '1A' || seatNo === '3A';
+        mockSeats.push({
+          seatId: `mock-${seatNo}`,
+          seatNumber: seatNo,
+          rowNum: r,
+          colNum: c,
+          deck: 'LOWER',
+          seatType: 'SEATER',
+          isWindow: c === 1 || c === 4,
+          extraFare: 0,
+          status: isBooked ? 'BOOKED' : 'AVAILABLE'
+        });
+      }
+    }
+  }
+
+  return {
+    status: 'SUCCESS',
+    source: 'LOCAL_FALLBACK',
+    data: {
+      busServiceId: busServiceId || 'c1111111-1111-1111-1111-111111111111',
+      serviceNumber: 'AP7788',
+      operatorName: 'APSRTC Super Luxury',
+      coachType: isSleeper ? 'SLEEPER_2X1' : 'SEATER_2X2',
+      totalRows: isSleeper ? 2 : 5,
+      totalCols: isSleeper ? 3 : 4,
+      totalSeats: mockSeats.length,
+      hasUpperDeck: isSleeper,
+      baseFare: 700,
+      departureDate: departureDate || new Date().toISOString().split('T')[0],
+      seats: mockSeats
+    }
+  };
+}
+
+/**
+ * 10. Reserve Temporary Seat Hold
+ */
+export async function createSeatHold(busServiceId, departureDate, seatNumbers, passengerCount = 1) {
+  try {
+    const payload = {
+      busServiceId: busServiceId || 'c1111111-1111-1111-1111-111111111111',
+      departureDate: departureDate || new Date().toISOString().split('T')[0],
+      seatNumbers,
+      passengerCount
+    };
+    const response = await apiRequest(ENDPOINTS.HOLD_SEATS, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+
+    if (response && response.holdToken) {
+      return { status: 'SUCCESS', source: 'SPRING_BOOT_API', data: response };
+    }
+  } catch (error) {
+    console.warn('[API Service] Spring Boot seat hold endpoint offline. Creating local hold token.');
+  }
+
+  return {
+    status: 'SUCCESS',
+    source: 'LOCAL_FALLBACK',
+    data: {
+      holdToken: `hold-${Date.now()}`,
+      holdExpiresAt: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+      busServiceId,
+      departureDate,
+      selectedSeats: seatNumbers,
+      totalFare: seatNumbers.length * 700,
+      message: 'Seats held temporarily for 10 minutes'
+    }
+  };
+}
+
+/**
+ * 11. Confirm Seat Booking & Payment
+ */
+export async function confirmSeatBooking(holdToken, busServiceId, departureDate, itineraryId, passengers) {
+  try {
+    const payload = {
+      holdToken,
+      busServiceId: busServiceId || 'c1111111-1111-1111-1111-111111111111',
+      departureDate: departureDate || new Date().toISOString().split('T')[0],
+      itineraryId,
+      passengers
+    };
+
+    const response = await apiRequest(ENDPOINTS.CONFIRM_SEAT_BOOKING, {
+      method: 'POST',
+      body: JSON.stringify(payload)
+    });
+
+    if (response && response.bookingReference) {
+      return { status: 'SUCCESS', source: 'SPRING_BOOT_API', data: response };
+    }
+  } catch (error) {
+    console.warn('[API Service] Spring Boot seat confirmation endpoint offline. Confirming booking locally.');
+  }
+
+  const bookingRef = `RM-BK${Math.floor(100000 + Math.random() * 900000)}`;
+
+  return {
+    status: 'SUCCESS',
+    source: 'LOCAL_FALLBACK',
+    data: {
+      bookingReference: bookingRef,
+      itineraryId,
+      busServiceId,
+      operatorName: 'APSRTC Super Luxury',
+      departureDate: departureDate || new Date().toISOString().split('T')[0],
+      totalFare: (passengers ? passengers.length : 1) * 700,
+      passengerCount: passengers ? passengers.length : 1,
+      passengers,
+      status: 'CONFIRMED',
+      message: 'Booking confirmed successfully!'
+    }
+  };
 }
 
 /**

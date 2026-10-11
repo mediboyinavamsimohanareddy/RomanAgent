@@ -121,10 +121,10 @@ export function Screen5ItineraryDetails({ option, onProceedToCheckout, language,
         </View>
       )}
 
-      {/* Proceed to Checkout CTA */}
+      {/* Proceed to Seat Selection CTA */}
       <TouchableOpacity style={styles.checkoutBtn} onPress={onProceedToCheckout}>
         <Text style={styles.checkoutBtnText}>
-          {isTe ? 'బుకింగ్ సిమ్యులేషన్‌కి వెళ్ళు ➔' : 'Proceed to Demo Checkout ➔'}
+          {isTe ? 'సీట్లను ఎంచుకొని ముందుకెళ్ళు ➔' : 'Select Seats & Proceed to Checkout ➔'}
         </Text>
       </TouchableOpacity>
     </ScrollView>

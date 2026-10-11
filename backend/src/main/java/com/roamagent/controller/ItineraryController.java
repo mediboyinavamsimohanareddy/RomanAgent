@@ -47,6 +47,7 @@ public class ItineraryController {
             for (var leg : c.getLegs()) {
                 legs.add(LegDto.builder()
                         .legSequence(seq++)
+                        .busServiceId(leg.getBusService().getId())
                         .operatorName(leg.getBusService().getOperator().getName())
                         .serviceNumber(leg.getBusService().getServiceNumber())
                         .busType(leg.getBusService().getServiceType())

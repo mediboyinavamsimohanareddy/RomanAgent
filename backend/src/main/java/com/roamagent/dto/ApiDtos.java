@@ -79,6 +79,7 @@ public class ApiDtos {
     @Builder
     public static class LegDto {
         private Integer legSequence;
+        private String busServiceId;
         private String operatorName;
         private String serviceNumber;
         private String busType;
@@ -109,6 +110,91 @@ public class ApiDtos {
         private String status;
         private LocalDateTime activeEta;
         private String auditRecordId;
+        private String message;
+    }
+
+    // --- Seat Selection and Booking DTOs ---
+
+    @Data
+    @Builder
+    public static class SeatDto {
+        private String seatId;
+        private String seatNumber;
+        private Integer rowNum;
+        private Integer colNum;
+        private String deck;
+        private String seatType;
+        private Boolean isWindow;
+        private BigDecimal extraFare;
+        private String status; // AVAILABLE, HELD, BOOKED
+    }
+
+    @Data
+    @Builder
+    public static class SeatLayoutResponse {
+        private String busServiceId;
+        private String serviceNumber;
+        private String operatorName;
+        private String coachType;
+        private Integer totalRows;
+        private Integer totalCols;
+        private Integer totalSeats;
+        private Boolean hasUpperDeck;
+        private BigDecimal baseFare;
+        private LocalDate departureDate;
+        private String serviceDepartureId;
+        private List<SeatDto> seats;
+    }
+
+    @Data
+    public static class CreateSeatHoldRequest {
+        private String busServiceId;
+        private LocalDate departureDate;
+        private List<String> seatNumbers;
+        private Integer passengerCount;
+    }
+
+    @Data
+    @Builder
+    public static class CreateSeatHoldResponse {
+        private String holdToken;
+        private LocalDateTime holdExpiresAt;
+        private String busServiceId;
+        private LocalDate departureDate;
+        private List<String> selectedSeats;
+        private BigDecimal totalFare;
+        private String message;
+    }
+
+    @Data
+    public static class PassengerInputDto {
+        private String seatNumber;
+        private String fullName;
+        private String gender;
+        private Integer age;
+    }
+
+    @Data
+    public static class ConfirmSeatBookingRequest {
+        private String holdToken;
+        private String busServiceId;
+        private LocalDate departureDate;
+        private String itineraryId;
+        private List<PassengerInputDto> passengers;
+    }
+
+    @Data
+    @Builder
+    public static class ConfirmSeatBookingResponse {
+        private String bookingReference;
+        private String itineraryId;
+        private String busServiceId;
+        private String operatorName;
+        private LocalDate departureDate;
+        private BigDecimal totalFare;
+        private Integer passengerCount;
+        private List<PassengerInputDto> passengers;
+        private String status;
         private String message;
     }
 }

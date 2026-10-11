@@ -18,6 +18,7 @@ import { Screen2ReviewDraft } from './src/Screen2ReviewDraft';
 import { Screen3Clarification } from './src/Screen3Clarification';
 import { Screen4Top4Results } from './src/Screen4Top4Results';
 import { Screen5ItineraryDetails } from './src/Screen5ItineraryDetails';
+import { Screen5BSeatSelection } from './src/Screen5BSeatSelection';
 import { Screen6Checkout } from './src/Screen6Checkout';
 import { Screen7DisruptionMonitor } from './src/Screen7DisruptionMonitor';
 import { Screen8RecoveryApproval } from './src/Screen8RecoveryApproval';
@@ -122,8 +123,14 @@ export default function App() {
     setCurrentStage(5);
   };
 
-  // Stage 5 -> 6: Proceed to Checkout
-  const handleProceedToCheckout = () => {
+  // Stage 5 -> 5B: Proceed to Seat Selection
+  const handleProceedToSeatSelection = () => {
+    setCurrentStage(55);
+  };
+
+  // Stage 5B -> 6: Proceed to Checkout from Seat Selection
+  const handleProceedToCheckoutFromSeats = (bookingData) => {
+    setSelectedOption(prev => ({ ...prev, ...bookingData }));
     setCurrentStage(6);
   };
 
@@ -268,7 +275,16 @@ export default function App() {
         {currentStage === 5 && selectedOption && (
           <Screen5ItineraryDetails
             option={selectedOption}
-            onProceedToCheckout={handleProceedToCheckout}
+            onProceedToCheckout={handleProceedToSeatSelection}
+            language={language}
+            onToggleLanguage={toggleLanguage}
+          />
+        )}
+
+        {currentStage === 55 && selectedOption && (
+          <Screen5BSeatSelection
+            option={selectedOption}
+            onProceedToCheckout={handleProceedToCheckoutFromSeats}
             language={language}
             onToggleLanguage={toggleLanguage}
           />

@@ -2,6 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Easing, ActivityIndicator } from 'react-native';
 import { theme } from './theme';
 import { DemoHeader, StatusPill } from './components';
+import { confirmSeatBooking } from './services/api';
 
 export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLanguage }) {
   const isTe = language === 'te';
@@ -9,6 +10,7 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
+  const [confirmedData, setConfirmedData] = useState(null);
 
   // Animation Refs
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -47,7 +49,19 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
     setErrorMessage(null);
 
     try {
-      // Execute payment confirmation via callback
+      // Execute backend seat booking confirmation
+      const res = await confirmSeatBooking(
+        option?.holdToken || `hold-${Date.now()}`,
+        option?.busServiceId || option?.legs?.[0]?.busServiceId || 'c1111111-1111-1111-1111-111111111111',
+        option?.departureDate || new Date().toISOString().split('T')[0],
+        option?.id,
+        option?.passengers
+      );
+
+      if (res && res.data) {
+        setConfirmedData(res.data);
+      }
+
       if (onConfirmJourney) {
         await Promise.resolve(onConfirmJourney(option));
       }
@@ -60,7 +74,8 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
     }
   };
 
-  const bookingRef = option?.id ? `RM-${option.id.toString().substring(0, 8).toUpperCase()}` : 'RM-BK89201X';
+  const bookingRef = confirmedData?.bookingReference || (option?.id ? `RM-${option.id.toString().substring(0, 8).toUpperCase()}` : 'RM-BK89201X');
+  const confirmedSeatsText = option?.selectedSeats ? option.selectedSeats.join(', ') : 'Assigned';
 
   if (isSuccess) {
     return (
@@ -88,9 +103,12 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
 
             <View style={styles.amountCard}>
               <Text style={styles.amountLabel}>{isTe ? 'చెల్లించిన మొత్తం' : 'Amount Paid'}</Text>
-              <Text style={styles.amountText}>₹{option?.totalFare || '1,450'}</Text>
+              <Text style={styles.amountText}>₹{confirmedData?.totalFare || option?.totalFare || '1,450'}</Text>
               <Text style={styles.bookingRefText}>
                 {isTe ? 'బుకింగ్ రిఫరెన్స్:' : 'Booking Ref:'} <Text style={styles.bookingRefVal}>{bookingRef}</Text>
+              </Text>
+              <Text style={styles.bookingRefText}>
+                {isTe ? 'ఎంచుకున్న సీట్లు:' : 'Confirmed Seats:'} <Text style={styles.bookingRefVal}>{confirmedSeatsText}</Text>
               </Text>
             </View>
 
