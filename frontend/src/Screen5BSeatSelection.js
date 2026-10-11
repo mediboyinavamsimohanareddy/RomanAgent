@@ -65,43 +65,42 @@ export function Screen5BSeatSelection({
       // Unselect seat
       const nextSeats = selectedSeatNos.filter(s => s !== seatNo);
       setSelectedSeatNos(nextSeats);
-      syncPassengers(nextSeats);
+      syncPassengers(nextSeats, passengerCount);
     } else {
-      // Select seat if within passenger count limit
-      if (selectedSeatNos.length >= passengerCount) {
-        const msg = isTe
-          ? `మీరు గరిష్టంగా ${passengerCount} సీటు(లు) మాత్రమే ఎంచుకోగలరు. ప్రయాణీకుల సంఖ్యను పెంచండి.`
-          : `You can only select up to ${passengerCount} seat(s) for ${passengerCount} passenger(s). Increase passenger count to select more.`;
-        Alert.alert(isTe ? 'సీటు ఎంపిక పరిమితి' : 'Seat Limit Reached', msg);
-        return;
-      }
-
+      // Allow adding seats up to maximum vehicle limit (or e.g. 10). Auto-sync passenger count if seat count exceeds current passenger count!
       const nextSeats = [...selectedSeatNos, seatNo];
+      const newPassengerCount = Math.max(passengerCount, nextSeats.length);
+      setPassengerCount(newPassengerCount);
       setSelectedSeatNos(nextSeats);
-      syncPassengers(nextSeats);
+      syncPassengers(nextSeats, newPassengerCount);
     }
   };
 
-  const syncPassengers = (seatNos) => {
-    const updated = seatNos.map((seatNo, idx) => {
+  const syncPassengers = (seatNos, count) => {
+    const targetCount = Math.max(count || 1, seatNos.length);
+    const updated = [];
+    for (let idx = 0; idx < targetCount; idx++) {
+      const seatNo = seatNos[idx] || '';
       const existing = passengers[idx];
-      return {
+      updated.push({
         seatNumber: seatNo,
         fullName: existing?.fullName || `Passenger ${idx + 1}`,
         gender: existing?.gender || 'Male',
         age: existing?.age || 25
-      };
-    });
+      });
+    }
     setPassengers(updated);
   };
 
   const handlePassengerCountChange = (delta) => {
-    const newCount = Math.max(1, Math.min(6, passengerCount + delta));
+    const newCount = Math.max(1, Math.min(10, passengerCount + delta));
     setPassengerCount(newCount);
     if (selectedSeatNos.length > newCount) {
       const trimmed = selectedSeatNos.slice(0, newCount);
       setSelectedSeatNos(trimmed);
-      syncPassengers(trimmed);
+      syncPassengers(trimmed, newCount);
+    } else {
+      syncPassengers(selectedSeatNos, newCount);
     }
   };
 
@@ -134,8 +133,8 @@ export function Screen5BSeatSelection({
 
     if (selectedSeatNos.length !== passengerCount) {
       Alert.alert(
-        isTe ? 'ప్రయాణీకుల వివరాలు' : 'Passenger Details Required',
-        isTe ? `దయచేసి ఎంచుకున్న ${selectedSeatNos.length} సీటు(ల)కు సమానమైన ప్రయాణీకులను ధృవీకరించండి.` : `Please select exactly ${passengerCount} seat(s) for your ${passengerCount} passenger(s).`
+        isTe ? 'ప్రయాణీకుల వివరాలు' : 'Passenger Seats Mismatch',
+        isTe ? `దయచేసి ఎంచుకున్న ${selectedSeatNos.length} సీట్లకు అనుగుణంగా ${passengerCount} ప్రయాణీకుల సంఖ్యను సరిచూడండి.` : `You have selected ${selectedSeatNos.length} seat(s) for ${passengerCount} passenger(s). Please align the number of selected seats and passengers.`
       );
       return;
     }
@@ -456,7 +455,7 @@ const styles = StyleSheet.create({
 
   legendContainer: {
     flexDirection: 'row',
-    justify.content: 'space-around',
+    justifyContent: 'space-around',
     marginHorizontal: theme.spacing.md,
     marginTop: theme.spacing.md,
     paddingVertical: 8,

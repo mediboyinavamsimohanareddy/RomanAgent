@@ -192,7 +192,14 @@ public class SeatBookingService {
         List<SeatInventory> heldInventories = seatInventoryRepository
                 .findByServiceDepartureIdAndHoldToken(departure.getId(), request.getHoldToken());
 
+        // Idempotent retry check: if holdToken is not found in inventories, check if already confirmed booking exists with this holdToken/itinerary
         if (heldInventories.isEmpty()) {
+            if (request.getItineraryId() != null) {
+                Optional<SeatBooking> existingBooking = seatBookingRepository.findByItineraryId(request.getItineraryId());
+                if (existingBooking.isPresent()) {
+                    return getBookingByReference(existingBooking.get().getBookingReference());
+                }
+            }
             throw new IllegalStateException("Invalid or expired seat hold token");
         }
 
@@ -229,7 +236,7 @@ public class SeatBookingService {
                 .bookingReference(bookingRef)
                 .itineraryId(request.getItineraryId())
                 .serviceDeparture(departure)
-                .passengerCount(request.getPassengers() != null ? request.getPassengers().size() : heldInventories.size())
+                .passengerCount(heldInventories.size())
                 .totalFare(totalFare)
                 .status("CONFIRMED")
                 .createdAt(now)
@@ -237,19 +244,21 @@ public class SeatBookingService {
 
         List<BookingPassenger> passengerEntities = new ArrayList<>();
         if (request.getPassengers() != null && !request.getPassengers().isEmpty()) {
-            for (PassengerInputDto pDto : request.getPassengers()) {
+            for (int i = 0; i < request.getPassengers().size(); i++) {
+                PassengerInputDto pDto = request.getPassengers().get(i);
+                final int index = i;
                 BusSeat seat = heldInventories.stream()
                         .map(SeatInventory::getBusSeat)
-                        .filter(s -> s.getSeatNumber().equalsIgnoreCase(pDto.getSeatNumber()))
+                        .filter(s -> pDto.getSeatNumber() != null && s.getSeatNumber().equalsIgnoreCase(pDto.getSeatNumber()))
                         .findFirst()
-                        .orElse(heldInventories.get(0).getBusSeat());
+                        .orElse(heldInventories.get(Math.min(index, heldInventories.size() - 1)).getBusSeat());
 
                 passengerEntities.add(BookingPassenger.builder()
                         .id(UUID.randomUUID().toString())
                         .booking(booking)
                         .busSeat(seat)
-                        .seatNumber(pDto.getSeatNumber())
-                        .fullName(pDto.getFullName() != null ? pDto.getFullName() : "Passenger")
+                        .seatNumber(seat.getSeatNumber())
+                        .fullName(pDto.getFullName() != null ? pDto.getFullName() : "Passenger " + (i + 1))
                         .gender(pDto.getGender() != null ? pDto.getGender() : "Male")
                         .age(pDto.getAge() != null ? pDto.getAge() : 25)
                         .build());
@@ -266,6 +275,7 @@ public class SeatBookingService {
                 .totalFare(totalFare)
                 .passengerCount(booking.getPassengerCount())
                 .passengers(request.getPassengers())
+                .confirmedSeatNumbers(heldInventories.stream().map(i -> i.getBusSeat().getSeatNumber()).collect(Collectors.toList()))
                 .status("CONFIRMED")
                 .message("Booking confirmed successfully!")
                 .build();
@@ -286,6 +296,8 @@ public class SeatBookingService {
             return dto;
         }).collect(Collectors.toList());
 
+        List<String> seatNumbers = passengers.stream().map(BookingPassenger::getSeatNumber).collect(Collectors.toList());
+
         return ConfirmSeatBookingResponse.builder()
                 .bookingReference(booking.getBookingReference())
                 .itineraryId(booking.getItineraryId())
@@ -295,6 +307,7 @@ public class SeatBookingService {
                 .totalFare(booking.getTotalFare())
                 .passengerCount(booking.getPassengerCount())
                 .passengers(pDtos)
+                .confirmedSeatNumbers(seatNumbers)
                 .status(booking.getStatus())
                 .message("Booking retrieved successfully")
                 .build();

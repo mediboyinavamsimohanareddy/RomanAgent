@@ -57,6 +57,10 @@ async function apiRequest(url, options = {}) {
  * 1. Fetch initial application data / Health check
  */
 export async function sendVoiceAudio(base64Audio, language = 'en') {
+  if (!base64Audio) {
+    throw new Error('No audio recorded');
+  }
+
   try {
     const response = await apiRequest(ENDPOINTS.VOICE_STT, {
       method: 'POST',
@@ -66,14 +70,11 @@ export async function sendVoiceAudio(base64Audio, language = 'en') {
       return response;
     }
   } catch (error) {
-    console.warn('[API Service] Backend STT endpoint unavailable. Using client fallback transcript.');
+    console.warn('[API Service] Backend STT endpoint error:', error);
+    throw error;
   }
 
-  const fallbackText = language === 'te'
-    ? 'రేపు ఉదయం 9 గంటలలోపు విశాఖపట్నం నుంచి హైదరాబాద్ చేరాలి. నా బడ్జెట్ ₹1,500. ఏసీ స్లీపర్ బస్సు కావాలి.'
-    : 'I need to travel from Vizag to Hyderabad tomorrow. I must reach before 9 AM. My budget is ₹1,500, and I prefer an AC sleeper.';
-
-  return { status: 'SUCCESS', transcript: fallbackText, language };
+  throw new Error('STT returned empty transcript');
 }
 
 /**
@@ -472,6 +473,7 @@ export async function confirmSeatBooking(holdToken, busServiceId, departureDate,
       totalFare: (passengers ? passengers.length : 1) * 700,
       passengerCount: passengers ? passengers.length : 1,
       passengers,
+      confirmedSeatNumbers: passengers ? passengers.map(p => p.seatNumber).filter(Boolean) : [],
       status: 'CONFIRMED',
       message: 'Booking confirmed successfully!'
     }

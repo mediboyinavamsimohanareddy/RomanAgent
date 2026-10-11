@@ -194,6 +194,7 @@ public class ApiDtos {
         private BigDecimal totalFare;
         private Integer passengerCount;
         private List<PassengerInputDto> passengers;
+        private List<String> confirmedSeatNumbers;
         private String status;
         private String message;
     }

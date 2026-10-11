@@ -52,6 +52,7 @@ public class GraphNetworkService {
     }
 
     public List<RouteCandidate> searchRoutes(String originCity, String destinationCity, LocalDate travelDate) {
+        LocalDate effectiveDate = travelDate != null ? travelDate : LocalDate.now();
         List<Stop> originStops = stopRepository.findByCityIgnoreCase(originCity);
         List<Stop> destStops = stopRepository.findByCityIgnoreCase(destinationCity);
 
@@ -75,8 +76,8 @@ public class GraphNetworkService {
                         ServiceStop destSS = destSSOpt.get();
 
                         if (originSS.getStopSequence() < destSS.getStopSequence()) {
-                            LocalDateTime depTime = LocalDateTime.of(travelDate, originSS.getScheduledDepartureTime()).plusDays(originSS.getDayOffset());
-                            LocalDateTime arrTime = LocalDateTime.of(travelDate, destSS.getScheduledArrivalTime()).plusDays(destSS.getDayOffset());
+                            LocalDateTime depTime = LocalDateTime.of(effectiveDate, originSS.getScheduledDepartureTime()).plusDays(originSS.getDayOffset());
+                            LocalDateTime arrTime = LocalDateTime.of(effectiveDate, destSS.getScheduledArrivalTime()).plusDays(destSS.getDayOffset());
 
                             BigDecimal fare = fareRecordRepository.findByBusServiceIdAndFromStopIdAndToStopId(service.getId(), origin.getId(), dest.getId())
                                     .map(FareRecord::getBaseFare)
@@ -118,8 +119,8 @@ public class GraphNetworkService {
                             ServiceStop originSS = originSSOpt.get();
                             ServiceStop hubSS1 = hubSS1Opt.get();
 
-                            LocalDateTime leg1Dep = LocalDateTime.of(travelDate, originSS.getScheduledDepartureTime()).plusDays(originSS.getDayOffset());
-                            LocalDateTime leg1Arr = LocalDateTime.of(travelDate, hubSS1.getScheduledArrivalTime()).plusDays(hubSS1.getDayOffset());
+                            LocalDateTime leg1Dep = LocalDateTime.of(effectiveDate, originSS.getScheduledDepartureTime()).plusDays(originSS.getDayOffset());
+                            LocalDateTime leg1Arr = LocalDateTime.of(effectiveDate, hubSS1.getScheduledArrivalTime()).plusDays(hubSS1.getDayOffset());
 
                             for (BusService s2 : allServices) {
                                 if (s1.getId().equals(s2.getId())) continue;
@@ -132,8 +133,8 @@ public class GraphNetworkService {
                                     ServiceStop hubSS2 = hubSS2Opt.get();
                                     ServiceStop destSS = destSSOpt.get();
 
-                                    LocalDateTime leg2Dep = LocalDateTime.of(travelDate, hubSS2.getScheduledDepartureTime()).plusDays(hubSS2.getDayOffset());
-                                    LocalDateTime leg2Arr = LocalDateTime.of(travelDate, destSS.getScheduledArrivalTime()).plusDays(destSS.getDayOffset());
+                                    LocalDateTime leg2Dep = LocalDateTime.of(effectiveDate, hubSS2.getScheduledDepartureTime()).plusDays(hubSS2.getDayOffset());
+                                    LocalDateTime leg2Arr = LocalDateTime.of(effectiveDate, destSS.getScheduledArrivalTime()).plusDays(destSS.getDayOffset());
 
                                     BigDecimal fare1 = fareRecordRepository.findByBusServiceIdAndFromStopIdAndToStopId(s1.getId(), origin.getId(), hub.getId())
                                             .map(FareRecord::getBaseFare).orElse(BigDecimal.valueOf(700.0));

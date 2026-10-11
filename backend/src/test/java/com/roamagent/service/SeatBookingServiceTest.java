@@ -93,4 +93,71 @@ public class SeatBookingServiceTest {
 
         assertThrows(IllegalStateException.class, () -> seatBookingService.createSeatHold(request));
     }
+
+    @Test
+    void testConfirmBooking_Success() {
+        mockInventory.setStatus("HELD");
+        mockInventory.setHoldToken("token-123");
+        mockInventory.setHoldExpiresAt(LocalDateTime.now().plusMinutes(10));
+
+        when(serviceDepartureRepository.findByBusServiceIdAndDepartureDate(eq("bs-1"), any())).thenReturn(Optional.of(mockDeparture));
+        when(seatInventoryRepository.findByServiceDepartureIdAndHoldToken(eq("dep-1"), eq("token-123"))).thenReturn(List.of(mockInventory));
+        when(fareRecordRepository.findByBusServiceId("bs-1")).thenReturn(List.of());
+        when(seatBookingRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+
+        ConfirmSeatBookingRequest request = new ConfirmSeatBookingRequest();
+        request.setBusServiceId("bs-1");
+        request.setDepartureDate(LocalDate.now());
+        request.setHoldToken("token-123");
+        request.setItineraryId("itin-1");
+
+        PassengerInputDto passenger = new PassengerInputDto();
+        passenger.setSeatNumber("1A");
+        passenger.setFullName("John Doe");
+        passenger.setGender("Male");
+        passenger.setAge(30);
+        request.setPassengers(List.of(passenger));
+
+        ConfirmSeatBookingResponse response = seatBookingService.confirmBooking(request);
+
+        assertNotNull(response.getBookingReference());
+        assertEquals("CONFIRMED", response.getStatus());
+        assertEquals(1, response.getConfirmedSeatNumbers().size());
+        assertEquals("1A", response.getConfirmedSeatNumbers().get(0));
+        assertEquals(BigDecimal.valueOf(700.00), response.getTotalFare());
+        verify(seatInventoryRepository).saveAll(any());
+        verify(seatBookingRepository).save(any());
+        verify(bookingPassengerRepository).saveAll(any());
+    }
+
+    @Test
+    void testConfirmBooking_IdempotentOnRetry() {
+        when(serviceDepartureRepository.findByBusServiceIdAndDepartureDate(eq("bs-1"), any())).thenReturn(Optional.of(mockDeparture));
+        when(seatInventoryRepository.findByServiceDepartureIdAndHoldToken(eq("dep-1"), eq("used-token"))).thenReturn(List.of());
+
+        SeatBooking existingBooking = SeatBooking.builder()
+                .id("b-1")
+                .bookingReference("RM-BK999999")
+                .itineraryId("itin-1")
+                .serviceDeparture(mockDeparture)
+                .passengerCount(1)
+                .totalFare(BigDecimal.valueOf(700.00))
+                .status("CONFIRMED")
+                .build();
+
+        when(seatBookingRepository.findByItineraryId("itin-1")).thenReturn(Optional.of(existingBooking));
+        when(seatBookingRepository.findByBookingReference("RM-BK999999")).thenReturn(Optional.of(existingBooking));
+        when(bookingPassengerRepository.findByBookingId("b-1")).thenReturn(List.of());
+
+        ConfirmSeatBookingRequest request = new ConfirmSeatBookingRequest();
+        request.setBusServiceId("bs-1");
+        request.setDepartureDate(LocalDate.now());
+        request.setHoldToken("used-token");
+        request.setItineraryId("itin-1");
+
+        ConfirmSeatBookingResponse response = seatBookingService.confirmBooking(request);
+
+        assertEquals("RM-BK999999", response.getBookingReference());
+        assertEquals("CONFIRMED", response.getStatus());
+    }
 }

@@ -294,7 +294,9 @@ export default function App() {
           <Screen6Checkout
             option={selectedOption}
             onConfirmJourney={(opt, navigateToJourney = false) => {
-              setActiveItinerary(opt || selectedOption);
+              const updatedOption = { ...selectedOption, ...opt };
+              setSelectedOption(updatedOption);
+              setActiveItinerary(updatedOption);
               if (navigateToJourney) {
                 setCurrentStage(7);
               }

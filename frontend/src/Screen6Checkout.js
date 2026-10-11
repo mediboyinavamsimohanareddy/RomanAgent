@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Easing, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Animated, Easing, ActivityIndicator, Alert } from 'react-native';
+import * as Print from 'expo-print';
+import * as Sharing from 'expo-sharing';
 import { theme } from './theme';
 import { DemoHeader, StatusPill } from './components';
 import { confirmSeatBooking } from './services/api';
@@ -11,6 +13,7 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
   const [isSuccess, setIsSuccess] = useState(false);
   const [errorMessage, setErrorMessage] = useState(null);
   const [confirmedData, setConfirmedData] = useState(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
 
   // Animation Refs
   const scaleAnim = useRef(new Animated.Value(0)).current;
@@ -75,7 +78,148 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
   };
 
   const bookingRef = confirmedData?.bookingReference || (option?.id ? `RM-${option.id.toString().substring(0, 8).toUpperCase()}` : 'RM-BK89201X');
-  const confirmedSeatsText = option?.selectedSeats ? option.selectedSeats.join(', ') : 'Assigned';
+  const confirmedSeatsList = confirmedData?.confirmedSeatNumbers || option?.selectedSeats || [];
+  const confirmedSeatsText = confirmedSeatsList.length > 0 ? confirmedSeatsList.join(', ') : 'Assigned';
+  const confirmedPassengerCount = confirmedData?.passengerCount || option?.passengers?.length || 1;
+  const confirmedTotalFare = confirmedData?.totalFare || option?.totalFare || '1,450';
+  const confirmedOperator = confirmedData?.operatorName || option?.operator || option?.legs?.[0]?.operator?.name || 'APSRTC Express';
+  const confirmedDate = confirmedData?.departureDate || option?.departureDate || new Date().toISOString().split('T')[0];
+
+  const handleDownloadPdfReceipt = async () => {
+    if (!isSuccess || isGeneratingPdf) return;
+
+    setIsGeneratingPdf(true);
+    try {
+      const passengerRows = (confirmedData?.passengers || option?.passengers || []).map((p, i) => `
+        <tr>
+          <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;">${i + 1}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #E2E8F0; font-weight: bold;">${p.fullName || 'Passenger ' + (i + 1)}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;">${p.seatNumber || confirmedSeatsList[i] || '-'}</td>
+          <td style="padding: 8px; border-bottom: 1px solid #E2E8F0;">${p.gender || 'Male'} / ${p.age || 25}</td>
+        </tr>
+      `).join('');
+
+      const legsHtml = (option?.legs || []).map((leg, i) => `
+        <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px; margin-bottom: 10px;">
+          <div style="font-size: 11px; font-weight: bold; color: #0284C7;">BUS LEG ${i + 1}: ${leg.operator?.name || confirmedOperator}</div>
+          <div style="font-size: 14px; font-weight: bold; color: #0F172A; margin-top: 4px;">
+            ${leg.fromCity || leg.originStop?.name || 'Origin'} &rarr; ${leg.toCity || leg.destStop?.name || 'Destination'}
+          </div>
+          <div style="font-size: 12px; color: #475569; margin-top: 4px;">
+            Departure: <strong>${leg.departureTime || '20:00'}</strong> &bull; Coach: ${leg.coachType || 'AC Seater'}
+          </div>
+        </div>
+      `).join('');
+
+      const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+          <head>
+            <meta charset="utf-8" />
+            <title>RoamAgent AI Booking Receipt</title>
+            <style>
+              body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; padding: 30px; color: #0F172A; }
+              .header { border-bottom: 2px solid #0284C7; padding-bottom: 16px; margin-bottom: 20px; }
+              .title { font-size: 24px; font-weight: bold; color: #0F172A; }
+              .subtitle { font-size: 14px; color: #0284C7; font-weight: 600; margin-top: 4px; }
+              .badge { display: inline-block; background-color: #DCFCE7; color: #15803D; font-size: 11px; font-weight: bold; padding: 4px 10px; border-radius: 6px; border: 1px solid #86EFAC; margin-top: 8px; }
+              .meta-table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+              .meta-table td { padding: 8px 0; font-size: 13px; }
+              .meta-label { color: #64748B; width: 35%; }
+              .meta-value { font-weight: bold; color: #0F172A; }
+              .section-title { font-size: 15px; font-weight: bold; margin-top: 24px; margin-bottom: 10px; color: #1E293B; border-bottom: 1px solid #CBD5E1; padding-bottom: 4px; }
+              .passenger-table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+              .passenger-table th { background-color: #F1F5F9; text-align: left; padding: 8px; font-size: 12px; color: #475569; }
+              .total-box { background-color: #F0F9FF; border: 1px solid #BAE6FD; border-radius: 8px; padding: 16px; margin-top: 24px; text-align: right; }
+              .total-label { font-size: 12px; color: #0369A1; font-weight: 600; text-transform: uppercase; }
+              .total-amount { font-size: 26px; font-weight: bold; color: #0284C7; margin-top: 4px; }
+              .disclaimer { margin-top: 30px; font-size: 10px; color: #94A3B8; text-align: center; border-top: 1px dashed #E2E8F0; padding-top: 12px; }
+            </style>
+          </head>
+          <body>
+            <div class="header">
+              <div class="title">RoamAgent AI</div>
+              <div class="subtitle">Travel Booking Receipt</div>
+              <div class="badge">DEMO BOOKING &bull; SIMULATED</div>
+            </div>
+
+            <table class="meta-table">
+              <tr>
+                <td class="meta-label">Booking Reference:</td>
+                <td class="meta-value">${bookingRef}</td>
+              </tr>
+              <tr>
+                <td class="meta-label">Issued On:</td>
+                <td class="meta-value">${new Date().toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td class="meta-label">Bus Operator:</td>
+                <td class="meta-value">${confirmedOperator}</td>
+              </tr>
+              <tr>
+                <td class="meta-label">Travel Date:</td>
+                <td class="meta-value">${confirmedDate}</td>
+              </tr>
+              <tr>
+                <td class="meta-label">Passengers / Seats:</td>
+                <td class="meta-value">${confirmedPassengerCount} Passenger(s) (${confirmedSeatsText})</td>
+              </tr>
+            </table>
+
+            <div class="section-title">Itinerary & Service Details</div>
+            ${legsHtml || `
+              <div style="background-color: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 8px; padding: 12px;">
+                <strong>${confirmedOperator}</strong> - ${confirmedDate}
+              </div>
+            `}
+
+            <div class="section-title">Confirmed Passengers</div>
+            <table class="passenger-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Full Name</th>
+                  <th>Seat No</th>
+                  <th>Gender / Age</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${passengerRows}
+              </tbody>
+            </table>
+
+            <div class="total-box">
+              <div class="total-label">Total Amount Paid (Simulated)</div>
+              <div class="total-amount">&#8377;${confirmedTotalFare}</div>
+            </div>
+
+            <div class="disclaimer">
+              This is a simulated demo booking receipt generated for testing purposes. It is not an official ticket or proof of actual financial payment.
+            </div>
+          </body>
+        </html>
+      `;
+
+      // Generate PDF
+      const { uri } = await Print.printToFileAsync({ html: htmlContent });
+
+      // Share or save PDF file
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'application/pdf',
+          dialogTitle: `Download Receipt ${bookingRef}`,
+          UTI: 'com.adobe.pdf'
+        });
+      } else {
+        Alert.alert('PDF Generated', `Receipt saved at: ${uri}`);
+      }
+    } catch (err) {
+      console.warn('PDF generation error:', err);
+      Alert.alert('PDF Error', 'Failed to generate PDF receipt. Please try again.');
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+  };
 
   if (isSuccess) {
     return (
@@ -103,14 +247,31 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
 
             <View style={styles.amountCard}>
               <Text style={styles.amountLabel}>{isTe ? 'చెల్లించిన మొత్తం' : 'Amount Paid'}</Text>
-              <Text style={styles.amountText}>₹{confirmedData?.totalFare || option?.totalFare || '1,450'}</Text>
+              <Text style={styles.amountText}>₹{confirmedTotalFare}</Text>
               <Text style={styles.bookingRefText}>
                 {isTe ? 'బుకింగ్ రిఫరెన్స్:' : 'Booking Ref:'} <Text style={styles.bookingRefVal}>{bookingRef}</Text>
+              </Text>
+              <Text style={styles.bookingRefText}>
+                {isTe ? 'ప్రయాణీకులు:' : 'Passengers:'} <Text style={styles.bookingRefVal}>{confirmedPassengerCount}</Text>
               </Text>
               <Text style={styles.bookingRefText}>
                 {isTe ? 'ఎంచుకున్న సీట్లు:' : 'Confirmed Seats:'} <Text style={styles.bookingRefVal}>{confirmedSeatsText}</Text>
               </Text>
             </View>
+
+            <TouchableOpacity
+              style={[styles.downloadPdfBtn, isGeneratingPdf && styles.btnDisabled]}
+              onPress={handleDownloadPdfReceipt}
+              disabled={isGeneratingPdf}
+            >
+              {isGeneratingPdf ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <Text style={styles.downloadPdfBtnText}>
+                  📄 {isTe ? 'రశీదు డౌన్‌లోడ్ చేయండి (PDF)' : 'Download Receipt (PDF)'}
+                </Text>
+              )}
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.viewJourneyBtn} onPress={() => onConfirmJourney && onConfirmJourney(option, true)}>
               <Text style={styles.viewJourneyBtnText}>
@@ -151,15 +312,19 @@ export function Screen6Checkout({ option, onConfirmJourney, language, onToggleLa
         <Text style={styles.sectionHeader}>{isTe ? 'టికెట్ సారాంశం' : 'Trip Summary & Passengers'}</Text>
         <View style={styles.row}>
           <Text style={styles.label}>{isTe ? 'ప్రయాణీకుల సంఖ్య:' : 'Passengers:'}</Text>
-          <Text style={styles.val}>1 Adult (Single Berth)</Text>
+          <Text style={styles.val}>{option?.passengers?.length || 1} Person(s)</Text>
+        </View>
+        <View style={styles.row}>
+          <Text style={styles.label}>{isTe ? 'ఎంచుకున్న సీట్లు:' : 'Selected Seats:'}</Text>
+          <Text style={styles.val}>{option?.selectedSeats ? option.selectedSeats.join(', ') : 'Assigned'}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>{isTe ? 'ఎంచుకున్న బస్సు:' : 'Selected Service:'}</Text>
-          <Text style={styles.val}>{option.operator}</Text>
+          <Text style={styles.val}>{option?.operator || option?.legs?.[0]?.operator?.name || 'APSRTC Express'}</Text>
         </View>
         <View style={styles.row}>
           <Text style={styles.label}>{isTe ? 'మొత్తం చెల్లించాల్సిన మొత్తం:' : 'Total Amount Due:'}</Text>
-          <Text style={styles.fareVal}>₹{option.totalFare}</Text>
+          <Text style={styles.fareVal}>₹{option?.totalFare}</Text>
         </View>
       </View>
 
@@ -351,6 +516,19 @@ const styles = StyleSheet.create({
   bookingRefVal: {
     fontWeight: '700',
     color: theme.colors.textPrimary,
+  },
+  downloadPdfBtn: {
+    backgroundColor: '#0284C7',
+    borderRadius: theme.radius.lg,
+    paddingVertical: 14,
+    width: '100%',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  downloadPdfBtnText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
   },
   viewJourneyBtn: {
     backgroundColor: theme.colors.primary,

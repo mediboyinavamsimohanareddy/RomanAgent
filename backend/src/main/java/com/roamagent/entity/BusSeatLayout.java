@@ -1,7 +1,7 @@
 package com.roamagent.entity;
 
+import jakarta.persistence.*;
 import lombok.*;
-import javax.persistence.*;
 
 @Entity
 @Table(name = "bus_seat_layouts")

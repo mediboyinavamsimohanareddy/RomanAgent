@@ -12,6 +12,7 @@ import {
   Alert
 } from 'react-native';
 import { AudioModule, useAudioRecorder, RecordingPresets } from 'expo-audio';
+import { Buffer } from 'buffer';
 import { theme } from './theme';
 import { sendChatMessage, sendVoiceAudio } from './services/api';
 
@@ -22,9 +23,10 @@ export function Screen1ConversationalIntake({ onExtractTrip, language, onToggleL
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStepText, setLoadingStepText] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const [recording, setRecording] = useState(null);
   const [errorMsg, setErrorMsg] = useState(null);
   const scrollViewRef = useRef(null);
+
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   const handleSend = async (customPrompt) => {
     const promptToSend = customPrompt || inputText;
@@ -45,7 +47,6 @@ export function Screen1ConversationalIntake({ onExtractTrip, language, onToggleL
     setLoadingStepText(isTe ? '🤖 Groq AI తో సమాధానం మరియు మార్గాన్ని విశ్లేషిస్తోంది...' : '🤖 Extracting travel intent via Groq AI & searching routes...');
 
     try {
-      // Direct Stage 1 -> Stage 2 Auto-Navigation Execution
       await onExtractTrip(promptToSend.trim());
     } catch (err) {
       setIsLoading(false);
@@ -65,42 +66,53 @@ export function Screen1ConversationalIntake({ onExtractTrip, language, onToggleL
         return;
       }
 
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
       setIsRecording(true);
     } catch (err) {
-      console.warn('Failed to start recording, using Web / Expo Fallback:', err);
-      // Native recording fallback for Web / Client
-      setIsRecording(true);
+      console.warn('Error starting voice recording:', err);
+      setIsRecording(false);
+      setErrorMsg(isTe ? 'మైక్రోఫోన్ ప్రారంభించడంలో విఫలమైంది.' : 'Failed to start microphone recording.');
     }
   };
 
   const stopVoiceRecordingAndSubmit = async () => {
-    setIsRecording(false);
-    setIsLoading(true);
-    setLoadingStepText(isTe ? '🎙️ గ్రోక్ విస్పర్ ద్వారా వాయిస్‌ని టెక్స్ట్‌గా మారుస్తోంది...' : '🎙️ Transcribing audio with Groq Whisper STT...');
-
     try {
-      let base64Data = null;
+      setIsRecording(false);
+      setIsLoading(true);
+      setLoadingStepText(isTe ? '🎙️ గ్రోక్ విస్పర్ ద్వారా వాయిస్‌ని టెక్స్ట్‌గా మారుస్తోంది...' : '🎙️ Transcribing audio with Groq Whisper STT...');
 
-      // Call Backend STT Endpoint
-      const sttResult = await sendVoiceAudio(base64Data, language);
-      const transcribedText = sttResult?.transcript || (
-        isTe 
-          ? 'రేపు ఉదయం 9 గంటలలోపు విశాఖపట్నం నుంచి హైదరాబాద్ చేరాలి. నా బడ్జెట్ ₹1,500. ఏసీ స్లీపర్ బస్సు కావాలి.'
-          : 'I need to travel from Vizag to Hyderabad tomorrow. I must reach before 9 AM. My budget is ₹1,500, and I prefer an AC sleeper.'
-      );
+      await audioRecorder.stop();
+      const uri = audioRecorder.uri;
 
-      setInputText(transcribedText);
-      setLoadingStepText(isTe ? '🤖 Groq AI ద్వారా ప్రయాణ వివరాలు అన్వయిస్తోంది...' : '🤖 Extracting structured travel parameters via Groq AI...');
-      
-      // Auto-Submit directly to Stage 2
-      await handleSend(transcribedText);
+      let base64Audio = null;
+      if (uri) {
+        try {
+          const resp = await fetch(uri);
+          const blob = await resp.blob();
+          const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onloadend = () => resolve(reader.result);
+            reader.onerror = reject;
+            reader.readAsArrayBuffer(blob);
+          });
+          base64Audio = Buffer.from(arrayBuffer).toString('base64');
+        } catch (readErr) {
+          console.warn('Error reading recorded audio bytes:', readErr);
+        }
+      }
+
+      const sttResult = await sendVoiceAudio(base64Audio, language);
+      if (sttResult && sttResult.transcript) {
+        setInputText(sttResult.transcript);
+      } else {
+        setErrorMsg(isTe ? 'వాయిస్ గురుతుపట్టడం విఫలమైంది. దయచేసి టైప్ చేయండి.' : 'Voice recognition failed. Please type your request.');
+      }
     } catch (e) {
       console.warn('Error during voice STT pipeline:', e);
-      const fallbackText = isTe
-        ? 'రేపు ఉదయం 9 గంటలలోపు విశాఖపట్నం నుంచి హైదరాబాద్ చేరాలి. నా బడ్జెట్ ₹1,500. ఏసీ స్లీపర్ బస్సు కావాలి.'
-        : 'I need to travel from Vizag to Hyderabad tomorrow. I must reach before 9 AM. My budget is ₹1,500, and I prefer an AC sleeper.';
-      setInputText(fallbackText);
-      await handleSend(fallbackText);
+      setErrorMsg(isTe ? 'వాయిస్ ప్రాసెసింగ్‌లో లోపం జరిగింది.' : 'Error processing recorded audio.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -278,7 +290,7 @@ export function Screen1ConversationalIntake({ onExtractTrip, language, onToggleL
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#F8FAFC', // Pure clean light-theme canvas
+    backgroundColor: '#F8FAFC',
   },
   topBar: {
     flexDirection: 'row',
@@ -528,12 +540,12 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 14,
-    backgroundColor: '#EA580C', // Vibrant orange contrast matching reference
+    backgroundColor: '#EA580C',
     justifyContent: 'center',
     alignItems: 'center',
   },
   micButtonRecordingActive: {
-    backgroundColor: '#DC2626', // Red pulsating state during recording
+    backgroundColor: '#DC2626',
     borderWidth: 2,
     borderColor: '#FECACA',
   },

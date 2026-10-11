@@ -36,16 +36,11 @@ public class TripController {
                     return Map.of("status", "SUCCESS", "transcript", transcript, "language", language);
                 }
             } catch (Exception e) {
-                // Fallthrough to fallback
+                return Map.of("status", "ERROR", "message", "Transcription failed: " + e.getMessage(), "language", language);
             }
         }
 
-        // Default Telugu / English STT fallback transcript when audio is mock or unparseable
-        String fallbackText = "te".equalsIgnoreCase(language)
-                ? "రేపు ఉదయం 9 గంటలలోపు విశాఖపట్నం నుంచి హైదరాబాద్ చేరాలి. నా బడ్జెట్ ₹1,500. ఏసీ స్లీపర్ బస్సు కావాలి."
-                : "I need to travel from Vizag to Hyderabad tomorrow. I must reach before 9 AM. My budget is ₹1,500, and I prefer an AC sleeper.";
-
-        return Map.of("status", "SUCCESS", "transcript", fallbackText, "language", language, "source", "FALLBACK_STT");
+        return Map.of("status", "ERROR", "message", "No valid audio payload received", "language", language);
     }
 
     @PostMapping("/trip-intent/extract")

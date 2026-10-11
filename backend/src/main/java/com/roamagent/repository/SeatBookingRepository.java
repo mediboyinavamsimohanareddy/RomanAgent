@@ -6,4 +6,5 @@ import java.util.Optional;
 
 public interface SeatBookingRepository extends JpaRepository<SeatBooking, String> {
     Optional<SeatBooking> findByBookingReference(String bookingReference);
+    Optional<SeatBooking> findByItineraryId(String itineraryId);
 }
